@@ -1,0 +1,9 @@
+[build]
+target = "armv7a-none-eabi"
+rustflags = ["-Cpanic=abort"]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

@@ -1,0 +1,22 @@
+[package]
+name = "rust-lib"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[profile.dev]
+panic="abort"
+
+[profile.release]
+panic="abort"
+
+[dependencies]
+serde = { version = "1.0.217", default-features = false, features = ["derive", "alloc"] }
+tomling = { version = "0.1.0", default-features = false, features = ["serde"] }
+embedded-io = { version = "0.6.1", features = ["alloc"] }
+rmp = { version = "0.8.14", default-features = false }
+
+[build-dependencies]
+bindgen = "0.71.1"
