@@ -24,6 +24,8 @@ jobs:
         set -e
         export VITASDK=$PWD/vitasdk
         export PATH=$VITASDK/bin:$PATH
+        rustup install nightly
+        rustup component add rust-src --toolchain nightly
         mkdir build
         cd build
         cmake ..
