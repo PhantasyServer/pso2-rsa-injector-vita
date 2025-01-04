@@ -1,0 +1,47 @@
+# Filename of the user's public key blob
+user_key = "ux0:data/publicKey.blob"
+# Enable IP address replacement
+replace_address = true
+# Enable auto key negotiation (requires `replace_address`)
+auto_key_fetch = true
+
+# You can have multiple of those...
+[[addresses]]
+old = "gs001.pso2gs.net"
+new = "example.com"
+
+[[addresses]]
+old = "gs016.pso2gs.net"
+new = "example.com"
+
+[[addresses]]
+old = "gs031.pso2gs.net"
+new = "example.com"
+
+[[addresses]]
+old = "gs046.pso2gs.net"
+new = "example.com"
+
+[[addresses]]
+old = "gs061.pso2gs.net"
+new = "example.com"
+
+[[addresses]]
+old = "gs076.pso2gs.net"
+new = "example.com"
+
+[[addresses]]
+old = "gs091.pso2gs.net"
+new = "example.com"
+
+[[addresses]]
+old = "gs106.pso2gs.net"
+new = "example.com"
+
+[[addresses]]
+old = "gs121.pso2gs.net"
+new = "example.com"
+
+[[addresses]]
+old = "gs136.pso2gs.net"
+new = "example.com"

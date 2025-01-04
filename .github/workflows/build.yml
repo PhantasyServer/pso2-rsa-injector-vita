@@ -1,0 +1,36 @@
+name: Test and build
+on: push
+env:
+  RUSTFLAGS: "-Dwarnings"
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps: 
+    - name: Pull repo
+      uses: actions/checkout@v4
+    - name: Build SDK
+      if: ${{ success() }}
+      run: |
+        set -e
+        export VITASDK=$PWD/vitasdk
+        export PATH=$VITASDK/bin:$PATH
+        git clone https://github.com/vitasdk/vdpm
+        cd vdpm
+        ./bootstrap-vitasdk.sh
+        ./install-all.sh
+    - name: Build module
+      if: ${{ success() }}
+      run: |
+        set -e
+        export VITASDK=$PWD/vitasdk
+        export PATH=$VITASDK/bin:$PATH
+        mkdir build
+        cd build
+        cmake ..
+        make
+    - name: Upload data artifact
+      if: ${{ success() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: module
+        path: ./build/pso2_injector.suprx
