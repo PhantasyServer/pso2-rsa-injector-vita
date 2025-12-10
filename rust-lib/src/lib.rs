@@ -135,6 +135,7 @@ extern "C" fn resolver_hook(
             owned_hostname = Some(alloc::ffi::CString::new(addr.new.clone()).unwrap());
             hostname = owned_hostname.as_ref().unwrap().as_ptr();
             replaced = true;
+            println!("Replacing {} with {}", addr.old, addr.new);
             break;
         }
     }
@@ -168,6 +169,7 @@ extern "C" fn connect_hook(
     let ipv4_addr = core::net::Ipv4Addr::from_bits(ipv4_addr.sin_addr.s_addr.swap_bytes());
     for key in KEYS.lock().iter() {
         if key.ip == ipv4_addr {
+            println!("Injecting key for {} (autokey)", ipv4_addr);
             rsa_inject(&key.key);
             return ret;
         }
@@ -175,6 +177,7 @@ extern "C" fn connect_hook(
 
     let lock = USER_KEY.lock();
     if let Some(key) = &*lock {
+        println!("Injecting key for {}", ipv4_addr);
         rsa_inject(key)
     }
 
@@ -190,6 +193,7 @@ extern "C" fn loadlib_hook(lib: raw::SceSysmoduleModuleId) -> c_int {
     }
     match lib {
         raw::SceSysmoduleModuleId::SCE_SYSMODULE_NET => {
+            println!("Net library loaded, hooking...");
             let lock = SETTINGS.lock();
             let settings = lock.as_ref().unwrap();
 
@@ -241,6 +245,7 @@ extern "C" fn loadlib_hook(lib: raw::SceSysmoduleModuleId) -> c_int {
             if res < TAI_ERROR_SYSTEM as u32 {
                 lock.uid = res as i32;
             }
+            println!("Done hooking net library");
         }
         _ => {}
     }
@@ -250,6 +255,7 @@ extern "C" fn loadlib_hook(lib: raw::SceSysmoduleModuleId) -> c_int {
 extern "C" fn unloadlib_hook(lib: raw::SceSysmoduleModuleId) -> c_int {
     match lib {
         raw::SceSysmoduleModuleId::SCE_SYSMODULE_NET => {
+            println!("Net library unloading, unhooking...");
             bindings::uninstall_net_fns();
             let mut lock = RESOLVER_HOOK.lock();
             if lock.uid >= 0 {
@@ -261,6 +267,7 @@ extern "C" fn unloadlib_hook(lib: raw::SceSysmoduleModuleId) -> c_int {
                 unsafe { raw::taiHookRelease(lock.uid, lock.hook) };
                 lock.uid = -1;
             }
+            println!("Done unhooking net library");
         }
         _ => {}
     }
@@ -270,6 +277,7 @@ extern "C" fn unloadlib_hook(lib: raw::SceSysmoduleModuleId) -> c_int {
 }
 
 fn get_keys(addr: Ipv4Addr) -> Vec<Keys> {
+    println!("Fetching keys from {addr}");
     let mut keys = alloc::vec![];
     let socket = SceNet::connect("replacement", addr);
     let Some(mut socket) = socket else {
@@ -298,6 +306,7 @@ fn get_keys(addr: Ipv4Addr) -> Vec<Keys> {
         }
         keys.push(Keys { ip, key });
     }
+    println!("Done fetching keys");
 
     keys
 }
@@ -372,6 +381,7 @@ pub extern "C" fn rust_main() {
     drop(lock);
 
     // read settings
+    println!("Reading settings...");
     let file = SceFile::open_read("ux0:data/pso2.toml");
     let settings: Settings = if let Some(mut file) = file {
         let mut data = alloc::vec![0; 2048];
@@ -380,7 +390,10 @@ pub extern "C" fn rust_main() {
         let data_str = alloc::string::String::from_utf8(data).unwrap_or_default();
         let settings = tomling::from_str(&data_str);
         match settings {
-            Ok(s) => s,
+            Ok(s) => {
+                println!("Done reading settings");
+                s
+            }
             Err(e) => {
                 println!("TOML error: {e}");
                 Default::default()
@@ -420,8 +433,10 @@ pub extern "C" fn rust_main() {
     };
 
     // find RSA key offset
+    println!("Finding RSA offset...");
     let rsa = find_rsa(segment);
     if let Some(rsa) = rsa {
+        println!("Found RSA offset: {:?}", rsa.as_mut_ptr());
         *RSA_ADDR.lock() = rsa.as_mut_ptr() as usize;
     }
 }
