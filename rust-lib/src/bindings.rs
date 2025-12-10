@@ -11,11 +11,17 @@ pub mod raw {
 }
 
 mod hook_check {
-    static _RESOLVER_HOOK_CHECK: crate::ResolverFn = crate::raw::sceNetResolverStartNtoa;
-    static _SOCKET_CHECK: crate::SocketFn = crate::raw::sceNetSocket;
-    static _SOCKET_CLOSE_CHECK: crate::SocketCloseFn = crate::raw::sceNetSocketClose;
-    static _CONNECT_CHECK: crate::ConnectFn = crate::raw::sceNetConnect;
-    static _RECV_CHECK: crate::RecvFn = crate::raw::sceNetRecv;
+    static _RESOLVER_FN_CHECK: crate::ResolverFn = crate::raw::sceNetResolverStartNtoa;
+    static _RESOLVER_HOOK_CHECK: crate::ResolverFn = crate::resolver_hook;
+    static _SOCKET_FN_CHECK: crate::SocketFn = crate::raw::sceNetSocket;
+    static _SOCKET_CLOSE_FN_CHECK: crate::SocketCloseFn = crate::raw::sceNetSocketClose;
+    static _CONNECT_FN_CHECK: crate::ConnectFn = crate::raw::sceNetConnect;
+    static _CONNECT_HOOK_CHECK: crate::ConnectFn = crate::connect_hook;
+    static _RECV_FN_CHECK: crate::RecvFn = crate::raw::sceNetRecv;
+    static _LOAD_MODULE_FN_CHECK: crate::LoadFn = crate::raw::sceSysmoduleLoadModule;
+    static _LOAD_MODULE_HOOK_CHECK: crate::LoadFn = crate::loadlib_hook;
+    static _UNLOAD_MODULE_FN_CHECK: crate::LoadFn = crate::raw::sceSysmoduleUnloadModule;
+    static _UNLOAD_MODULE_HOOK_CHECK: crate::LoadFn = crate::unloadlib_hook;
 }
 
 pub static NET_FUNCS: Mutex<Option<NetFns>> = Mutex::new(None, "NetFns");
@@ -78,6 +84,18 @@ impl SceFile {
             Some(Self { handle })
         }
     }
+    #[allow(unused)]
+    pub fn open_write(path: &str) -> Option<SceFile> {
+        let c_path = alloc::ffi::CString::new(path).unwrap();
+        let handle =
+            unsafe { raw::sceIoOpen(c_path.as_ptr(), raw::SceIoMode::SCE_O_CREAT as i32, 0o777) };
+        if handle < 0 {
+            println!("Failed to open: {:X}", handle as u32);
+            None
+        } else {
+            Some(Self { handle })
+        }
+    }
 }
 impl embedded_io::ErrorType for SceFile {
     type Error = embedded_io::ErrorKind;
@@ -91,6 +109,22 @@ impl embedded_io::Read for SceFile {
                 buf.len() as u32,
             )
         } as usize)
+    }
+}
+impl embedded_io::Write for SceFile {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        Ok(unsafe {
+            raw::sceIoWrite(
+                self.handle,
+                buf.as_ptr() as *const core::ffi::c_void,
+                buf.len() as u32,
+            )
+        } as usize)
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        unsafe { raw::sceIoSyncByFd(self.handle, 0) };
+        Ok(())
     }
 }
 impl Drop for SceFile {
@@ -167,6 +201,9 @@ impl Drop for SceNet {
 
 pub fn install_net_fns(fns: NetFns) {
     *NET_FUNCS.lock() = Some(fns);
+}
+pub fn uninstall_net_fns() {
+    *NET_FUNCS.lock() = None;
 }
 
 pub fn _print(args: core::fmt::Arguments) {

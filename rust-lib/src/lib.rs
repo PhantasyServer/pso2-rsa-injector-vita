@@ -31,6 +31,7 @@ type ConnectFn =
     unsafe extern "C" fn(c_int, *const raw::SceNetSockaddr, core::ffi::c_uint) -> c_int;
 type RecvFn =
     unsafe extern "C" fn(c_int, *mut core::ffi::c_void, core::ffi::c_uint, c_int) -> c_int;
+type LoadFn = unsafe extern "C" fn(raw::SceSysmoduleModuleId) -> c_int;
 
 const RSAHEADER: [u8; 12] = [
     0x06, 0x02, 0x00, 0x00, 0x00, 0xA4, 0x00, 0x00, 0x52, 0x53, 0x41, 0x31,
@@ -38,8 +39,10 @@ const RSAHEADER: [u8; 12] = [
 const TAI_ERROR_SYSTEM: raw::SceUID = 0x90010000u32 as i32;
 
 static RSA_ADDR: Mutex<usize> = Mutex::new(0, "RSA_ADDR");
-static RESOLVER_HOOK: Mutex<HookInfo> = Mutex::new(HookInfo { uid: 0, hook: 0 }, "ResolverHook");
-static CONNECT_HOOK: Mutex<HookInfo> = Mutex::new(HookInfo { uid: 0, hook: 0 }, "ConnectHook");
+static RESOLVER_HOOK: Mutex<HookInfo> = Mutex::new(HookInfo { uid: -1, hook: 0 }, "ResolverHook");
+static CONNECT_HOOK: Mutex<HookInfo> = Mutex::new(HookInfo { uid: -1, hook: 0 }, "ConnectHook");
+static LOAD_HOOK: Mutex<HookInfo> = Mutex::new(HookInfo { uid: -1, hook: 0 }, "LoadHook");
+static UNLOAD_HOOK: Mutex<HookInfo> = Mutex::new(HookInfo { uid: -1, hook: 0 }, "UnloadHook");
 static SETTINGS: Mutex<Option<Settings>> = Mutex::new(None, "Settings");
 static RSA_INJECT_ID: Mutex<Option<raw::SceUID>> = Mutex::new(None, "RSA_INJECT");
 static KEYS: Mutex<Vec<Keys>> = Mutex::new(Vec::new(), "KEYS");
@@ -178,6 +181,94 @@ extern "C" fn connect_hook(
     ret
 }
 
+extern "C" fn loadlib_hook(lib: raw::SceSysmoduleModuleId) -> c_int {
+    let lock = LOAD_HOOK.lock();
+    let func: LoadFn = unsafe { hook_to_fn!(lock) };
+    let ret = unsafe { func(lib) };
+    if ret < 0 {
+        return ret;
+    }
+    match lib {
+        raw::SceSysmoduleModuleId::SCE_SYSMODULE_NET => {
+            let lock = SETTINGS.lock();
+            let settings = lock.as_ref().unwrap();
+
+            // hook SceNet::sceNetResolverStartNtoa
+            if settings.replace_address {
+                let mut args = raw::tai_hook_args_t {
+                    size: core::mem::size_of::<raw::tai_hook_args_t>(),
+                    module: c"pso2".as_ptr(),
+                    library_nid: 0x6BF8B2A2,
+                    func_nid: 0x1EB11857,
+                    hook_func: resolver_hook as *const core::ffi::c_void,
+                };
+                let mut lock = RESOLVER_HOOK.lock();
+                let res = unsafe {
+                    raw::taiHookFunctionImportForUser(&raw mut lock.hook, &raw mut args) as u32
+                };
+                if res < TAI_ERROR_SYSTEM as u32 {
+                    lock.uid = res as i32;
+                }
+            }
+
+            // generate SceNet bindings
+            let socket: SocketFn =
+                unsafe { core::mem::transmute(get_fn_addr(0x6BF8B2A2, 0xF084FCE3)) };
+            let connect: ConnectFn =
+                unsafe { core::mem::transmute(get_fn_addr(0x6BF8B2A2, 0x11E5B6F6)) };
+            let recv: RecvFn = unsafe { core::mem::transmute(get_fn_addr(0x6BF8B2A2, 0x023643B7)) };
+            let socket_close: SocketCloseFn =
+                unsafe { core::mem::transmute(get_fn_addr(0x6BF8B2A2, 0x29822B4D)) };
+            bindings::install_net_fns(NetFns {
+                socket,
+                socket_close,
+                connect,
+                recv,
+            });
+
+            // hook SceNet::sceNetConnect
+            let mut args = raw::tai_hook_args_t {
+                size: core::mem::size_of::<raw::tai_hook_args_t>(),
+                module: c"pso2".as_ptr(),
+                library_nid: 0x6BF8B2A2,
+                func_nid: 0x11E5B6F6,
+                hook_func: connect_hook as *const core::ffi::c_void,
+            };
+            let mut lock = CONNECT_HOOK.lock();
+            let res = unsafe {
+                raw::taiHookFunctionImportForUser(&raw mut lock.hook, &raw mut args) as u32
+            };
+            if res < TAI_ERROR_SYSTEM as u32 {
+                lock.uid = res as i32;
+            }
+        }
+        _ => {}
+    }
+    ret
+}
+
+extern "C" fn unloadlib_hook(lib: raw::SceSysmoduleModuleId) -> c_int {
+    match lib {
+        raw::SceSysmoduleModuleId::SCE_SYSMODULE_NET => {
+            bindings::uninstall_net_fns();
+            let mut lock = RESOLVER_HOOK.lock();
+            if lock.uid >= 0 {
+                unsafe { raw::taiHookRelease(lock.uid, lock.hook) };
+                lock.uid = -1;
+            }
+            let mut lock = CONNECT_HOOK.lock();
+            if lock.uid >= 0 {
+                unsafe { raw::taiHookRelease(lock.uid, lock.hook) };
+                lock.uid = -1;
+            }
+        }
+        _ => {}
+    }
+    let lock = UNLOAD_HOOK.lock();
+    let func: LoadFn = unsafe { hook_to_fn!(lock) };
+    unsafe { func(lib) }
+}
+
 fn get_keys(addr: Ipv4Addr) -> Vec<Keys> {
     let mut keys = alloc::vec![];
     let socket = SceNet::connect("replacement", addr);
@@ -236,11 +327,49 @@ pub extern "C" fn rust_main() {
     SETTINGS.init();
     bindings::NET_FUNCS.init();
     RSA_ADDR.init();
+    LOAD_HOOK.init();
+    UNLOAD_HOOK.init();
     RESOLVER_HOOK.init();
     CONNECT_HOOK.init();
     RSA_INJECT_ID.init();
     KEYS.init();
     USER_KEY.init();
+
+    // hook sceSysmoduleLoadModule
+    let mut args = raw::tai_hook_args_t {
+        size: core::mem::size_of::<raw::tai_hook_args_t>(),
+        module: c"pso2".as_ptr(),
+        library_nid: 0x03FCF19D,
+        func_nid: 0x79A0160A,
+        hook_func: loadlib_hook as *const core::ffi::c_void,
+    };
+    let mut lock = LOAD_HOOK.lock();
+    let res =
+        unsafe { raw::taiHookFunctionImportForUser(&raw mut lock.hook, &raw mut args) as u32 };
+    if res < TAI_ERROR_SYSTEM as u32 {
+        lock.uid = res as i32;
+    } else {
+        panic!("Failed to hook sceSysmoduleLoadModule: {res:X}");
+    }
+    drop(lock);
+
+    // hook sceSysmoduleUnloadModule
+    let mut args = raw::tai_hook_args_t {
+        size: core::mem::size_of::<raw::tai_hook_args_t>(),
+        module: c"pso2".as_ptr(),
+        library_nid: 0x03FCF19D,
+        func_nid: 0x31D87805,
+        hook_func: unloadlib_hook as *const core::ffi::c_void,
+    };
+    let mut lock = UNLOAD_HOOK.lock();
+    let res =
+        unsafe { raw::taiHookFunctionImportForUser(&raw mut lock.hook, &raw mut args) as u32 };
+    if res < TAI_ERROR_SYSTEM as u32 {
+        lock.uid = res as i32;
+    } else {
+        panic!("Failed to hook sceSysmoduleUnloadModule: {res:X}");
+    }
+    drop(lock);
 
     // read settings
     let file = SceFile::open_read("ux0:data/pso2.toml");
@@ -295,91 +424,26 @@ pub extern "C" fn rust_main() {
     if let Some(rsa) = rsa {
         *RSA_ADDR.lock() = rsa.as_mut_ptr() as usize;
     }
-
-    // hook SceNet::sceNetResolverStartNtoa
-    if settings.replace_address {
-        loop {
-            unsafe {
-                let mut args = raw::tai_hook_args_t {
-                    size: core::mem::size_of::<raw::tai_hook_args_t>(),
-                    module: c"pso2".as_ptr(),
-                    library_nid: 0x6BF8B2A2,
-                    func_nid: 0x1EB11857,
-                    hook_func: resolver_hook as *const core::ffi::c_void,
-                };
-                let mut lock = RESOLVER_HOOK.lock();
-                let res =
-                    raw::taiHookFunctionImportForUser(&raw mut lock.hook, &raw mut args) as u32;
-                if res < TAI_ERROR_SYSTEM as u32 {
-                    lock.uid = res as i32;
-                    break;
-                } else {
-                    lock.hook = 0;
-                }
-                raw::sceKernelDelayThread(1000 * 10);
-            }
-        }
-    }
-
-    // generate SceNet bindings
-    let socket: SocketFn = unsafe { core::mem::transmute(get_fn_addr(0x6BF8B2A2, 0xF084FCE3)) };
-    let connect: ConnectFn = unsafe { core::mem::transmute(get_fn_addr(0x6BF8B2A2, 0x11E5B6F6)) };
-    let recv: RecvFn = unsafe { core::mem::transmute(get_fn_addr(0x6BF8B2A2, 0x023643B7)) };
-    let socket_close: SocketCloseFn =
-        unsafe { core::mem::transmute(get_fn_addr(0x6BF8B2A2, 0x29822B4D)) };
-    bindings::install_net_fns(NetFns {
-        socket,
-        socket_close,
-        connect,
-        recv,
-    });
-
-    // hook SceNet::sceNetConnect
-    loop {
-        unsafe {
-            let mut args = raw::tai_hook_args_t {
-                size: core::mem::size_of::<raw::tai_hook_args_t>(),
-                module: c"pso2".as_ptr(),
-                library_nid: 0x6BF8B2A2,
-                func_nid: 0x11E5B6F6,
-                hook_func: connect_hook as *const core::ffi::c_void,
-            };
-            let mut lock = CONNECT_HOOK.lock();
-            let res = raw::taiHookFunctionImportForUser(&raw mut lock.hook, &raw mut args) as u32;
-            if res < TAI_ERROR_SYSTEM as u32 {
-                lock.uid = res as i32;
-                break;
-            } else {
-                lock.hook = 0;
-            }
-            raw::sceKernelDelayThread(1000 * 10);
-        }
-    }
 }
 
 fn get_fn_addr(lib_nid: u32, func_nid: u32) -> usize {
     let mut hook = HookInfo { uid: 0, hook: 0 };
-    loop {
-        unsafe {
-            let mut args = raw::tai_hook_args_t {
-                size: core::mem::size_of::<raw::tai_hook_args_t>(),
-                module: c"pso2".as_ptr(),
-                library_nid: lib_nid,
-                func_nid,
-                hook_func: resolver_hook as *const core::ffi::c_void,
-            };
-            let res = raw::taiHookFunctionImportForUser(&raw mut hook.hook, &raw mut args) as u32;
-            if res < TAI_ERROR_SYSTEM as u32 {
-                hook.uid = res as i32;
-                let addr: usize = hook_to_fn!(hook);
-                raw::taiHookRelease(hook.uid, hook.hook);
-                break addr;
-            } else {
-                hook.hook = 0;
-            }
-            raw::sceKernelDelayThread(1000 * 10);
-        }
+    let mut args = raw::tai_hook_args_t {
+        size: core::mem::size_of::<raw::tai_hook_args_t>(),
+        module: c"pso2".as_ptr(),
+        library_nid: lib_nid,
+        func_nid,
+        hook_func: resolver_hook as *const core::ffi::c_void,
+    };
+    let res =
+        unsafe { raw::taiHookFunctionImportForUser(&raw mut hook.hook, &raw mut args) as u32 };
+    if res < TAI_ERROR_SYSTEM as u32 {
+        hook.uid = res as i32;
+        let addr: usize = unsafe { hook_to_fn!(hook) };
+        unsafe { raw::taiHookRelease(hook.uid, hook.hook) };
+        return addr;
     }
+    panic!("Failed to get function address: {res:X}");
 }
 
 #[panic_handler]
