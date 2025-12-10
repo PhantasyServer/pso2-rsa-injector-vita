@@ -9,7 +9,7 @@ Versions for [NGS](https://github.com/AntonnMal/pso2-rsa-injector) and [classic]
 > [!NOTE]
 > Building on bare Windows is unsupported, use WSL.
 
-You will need to install cmake, gcc, git, [rust compiler](https://www.rust-lang.org/tools/install) and the [Vita SDK](https://vitasdk.org/).
+You will need to install cmake, gcc, git, [nightly rust compiler](https://www.rust-lang.org/tools/install) with std-src (`rustup component add rust-src --toolchain nightly`) and the [Vita SDK](https://vitasdk.org/).
 
 Then run to build:
 ```
