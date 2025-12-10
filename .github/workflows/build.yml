@@ -26,6 +26,7 @@ jobs:
         export PATH=$VITASDK/bin:$PATH
         rustup install nightly
         rustup component add rust-src --toolchain nightly
+        rustup target add --toolchain nightly armv7a-none-eabihf
         mkdir build
         cd build
         cmake ..
