@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.2)
+cmake_minimum_required(VERSION 3.10)
 
 if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
   if(DEFINED ENV{VITASDK})
@@ -44,14 +44,14 @@ add_executable(${PROJECT_NAME}
 )
 
 target_link_libraries(${PROJECT_NAME}
-  SceLibc_stub
-  SceLibKernel_stub
+  rust_lib
   SceRtabi_stub
   SceIofilemgr_stub
   SceKernelThreadMgr_stub
   SceKernelModulemgr_stub
+  SceLibc_stub
+  SceLibKernel_stub
   taihen_stub
-  rust_lib
 )
 
 set_target_properties(${PROJECT_NAME}
