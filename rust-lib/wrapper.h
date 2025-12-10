@@ -3,6 +3,7 @@
 #include <psp2/kernel/clib.h>
 #include <psp2/kernel/modulemgr.h>
 #include <psp2/kernel/processmgr.h>
+#include <psp2/message_dialog.h>
 #include <psp2/net/net.h>
 #include <psp2/sysmodule.h>
 #include <psp2common/kernel/iofilemgr.h>

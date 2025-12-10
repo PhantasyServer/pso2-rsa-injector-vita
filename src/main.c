@@ -1,3 +1,4 @@
+#include "psp2/message_dialog.h"
 #include <psp2/io/fcntl.h>
 #include <psp2/kernel/clib.h>
 #include <psp2/kernel/modulemgr.h>
@@ -10,7 +11,6 @@
 #include <taihen.h>
 
 uint8_t *__aeabi_unwind_cpp_pr0 = 0;
-static SceUID thid_main = -1;
 
 __attribute((unused)) void unused_fns(void) {
   memcmp(0, 0, 0);
@@ -25,26 +25,20 @@ __attribute((unused)) void unused_fns(void) {
   sceIoClose(0);
   sceIoRead(0, 0, 0);
   taiHookFunctionImportForUser(0, 0);
-  sceKernelDelayThread(1000 * 10);
   sceKernelCreateMutex(0, 0, 0, 0);
   sceKernelLockMutex(0, 0, 0);
   sceKernelUnlockMutex(0, 0);
   sceKernelGetProcessId();
   taiInjectAbs(0, 0, 0);
   taiInjectRelease(0);
+  sceKernelExitProcess(0);
+  sceMsgDialogInit(0);
+  sceCommonDialogSetConfigParam(0);
+  sceMsgDialogGetStatus();
+  sceMsgDialogTerm();
 }
-
-// ------------------------------------
-// Hooks
-// ------------------------------------
 
 void rust_main(void);
-
-int main_thread(SceSize args, void *argp) {
-  rust_main();
-  sceKernelExitDeleteThread(0);
-  return 0;
-}
 
 // ------------------------------------
 // Entry point
@@ -53,10 +47,7 @@ int main_thread(SceSize args, void *argp) {
 int _start(SceSize args, void *argp)
     __attribute__((weak, alias("module_start")));
 int module_start(SceSize args, void *argp) {
-  thid_main = sceKernelCreateThread("pso2_injector_main", main_thread, 64,
-                                    0x2000, 0, 0x10000, 0);
-  if (thid_main >= 0)
-    sceKernelStartThread(thid_main, 0, NULL);
+  rust_main();
   return SCE_KERNEL_START_SUCCESS;
 }
 

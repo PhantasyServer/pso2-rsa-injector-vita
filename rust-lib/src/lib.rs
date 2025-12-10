@@ -448,6 +448,46 @@ fn get_fn_addr(lib_nid: u32, func_nid: u32) -> usize {
 
 #[panic_handler]
 fn panic(ex: &core::panic::PanicInfo) -> ! {
-    println!("Rust panic: {ex}");
-    loop {}
+    println!("{ex}");
+    let common_dialog = raw::SceCommonDialogConfigParam {
+        sdkVersion: raw::PSP2_SDK_VERSION,
+        language: raw::SceSystemParamLang::SCE_SYSTEM_PARAM_LANG_ENGLISH_US,
+        enterButtonAssign:
+            raw::SceSystemParamEnterButtonAssign::SCE_SYSTEM_PARAM_ENTER_BUTTON_CROSS,
+        ..Default::default()
+    };
+    unsafe { raw::sceCommonDialogSetConfigParam(&common_dialog as *const _) };
+    let msg = alloc::ffi::CString::new(alloc::format!("{ex}")).unwrap_or_default();
+    let mut msg_opts = raw::SceMsgDialogUserMessageParam {
+        buttonType: raw::SceMsgDialogButtonType::SCE_MSG_DIALOG_BUTTON_TYPE_OK as i32,
+        msg: msg.as_ptr() as *const i8,
+        ..Default::default()
+    };
+
+    // we should setup gxm here to display the panic message properly
+    // right now we depend on the game setting up everything, so if we panic before that then
+    // nothing will show up
+
+    let dialog_options = raw::SceMsgDialogParam {
+        sdkVersion: raw::PSP2_SDK_VERSION,
+        commonParam: raw::SceCommonDialogParam {
+            magic: raw::SCE_COMMON_DIALOG_MAGIC_NUMBER,
+            ..Default::default()
+        },
+        mode: raw::SceMsgDialogMode::SCE_MSG_DIALOG_MODE_USER_MSG as i32,
+        userMsgParam: &raw mut msg_opts,
+        ..Default::default()
+    };
+    let res = unsafe { raw::sceMsgDialogInit(&dialog_options as *const _) };
+    if res == 0 {
+        loop {
+            let res = unsafe { raw::sceMsgDialogGetStatus() };
+            if res == raw::SceCommonDialogStatus::SCE_COMMON_DIALOG_STATUS_FINISHED {
+                break;
+            }
+        }
+    }
+    unsafe { raw::sceMsgDialogTerm() };
+    unsafe { raw::sceKernelExitProcess(-1) };
+    unsafe { core::hint::unreachable_unchecked() };
 }
