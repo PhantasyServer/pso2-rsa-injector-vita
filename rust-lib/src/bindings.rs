@@ -70,7 +70,7 @@ impl SceFile {
     pub fn open_read(path: &str) -> Option<SceFile> {
         let c_path = alloc::ffi::CString::new(path).unwrap();
         let handle =
-            unsafe { raw::sceIoOpen(c_path.as_ptr(), raw::SceIoMode_SCE_O_RDONLY as i32, 0o777) };
+            unsafe { raw::sceIoOpen(c_path.as_ptr(), raw::SceIoMode::SCE_O_RDONLY as i32, 0o777) };
         if handle < 0 {
             println!("Failed to open: {:X}", handle as u32);
             None
@@ -109,7 +109,7 @@ impl SceNet {
             (net_fns.socket)(
                 c_name.as_ptr(),
                 raw::SCE_NET_AF_INET as i32,
-                raw::SceNetSocketType_SCE_NET_SOCK_STREAM as i32,
+                raw::SceNetSocketType::SCE_NET_SOCK_STREAM as i32,
                 0,
             )
         };

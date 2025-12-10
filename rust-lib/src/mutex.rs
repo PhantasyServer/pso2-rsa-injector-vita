@@ -27,7 +27,7 @@ impl<T> Mutex<T> {
             unsafe { raw::sceKernelCreateMutex(c_str.as_ptr(), 0, 1, core::ptr::null_mut()) };
         let _ = self.handle.set(handle);
     }
-    pub fn lock(&self) -> MutexGuard<T> {
+    pub fn lock(&self) -> MutexGuard<'_, T> {
         let handle = *self.handle.get().unwrap();
         unsafe { raw::sceKernelLockMutex(handle, 1, core::ptr::null_mut()) };
         MutexGuard { ptr: self }

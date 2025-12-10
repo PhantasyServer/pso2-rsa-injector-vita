@@ -7,6 +7,9 @@ fn main() {
         .header("wrapper.h")
         .derive_default(true)
         .derive_debug(true)
+        .default_enum_style(bindgen::EnumVariation::Rust {
+            non_exhaustive: false,
+        })
         .clang_arg("-I".to_owned() + &sdk_path)
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .generate()
